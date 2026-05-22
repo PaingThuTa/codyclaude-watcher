@@ -1,5 +1,5 @@
 {
-  "mode": "yolo",
+  "mode": "standard",
   "granularity": "standard",
   "parallelization": true,
   "commit_docs": true,
