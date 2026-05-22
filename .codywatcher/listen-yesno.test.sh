@@ -51,7 +51,7 @@ fi
 
 # Test 6: Binary compiles
 if [ -f "$SOURCE" ]; then
-  if swiftc -framework Speech "$SOURCE" -o "$BINARY" 2>/dev/null; then
+  if swiftc -framework Speech "$SOURCE" -o "$BINARY" 2>&1; then
     pass "Binary compiles successfully"
   else
     fail "Binary compilation failed"
