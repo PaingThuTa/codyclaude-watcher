@@ -158,6 +158,31 @@ echo 'export CODYWATCHER_KEY="your-secret-key"' >> ~/.zshrc
 | Hook FIFO read timeout | 30s | `hook.sh` → `FIFO_TIMEOUT` |
 | Stale session purge | 1 hour | `daemon.ts` → `STALE_THRESHOLD_MS` |
 
+## Stopping and Battery Impact
+
+**Battery impact: minimal.** The daemon is a lightweight idle HTTP server — no mic, no CPU, no audio between requests. The microphone and speech recognition only run for ~30 seconds when Claude actually asks for permission. In between, everything is off.
+
+### Stop the daemon
+
+```bash
+launchctl unload ~/Library/LaunchAgents/com.codysecret1.codywatcher.plist
+```
+
+### Start it again
+
+```bash
+launchctl load ~/Library/LaunchAgents/com.codysecret1.codywatcher.plist
+```
+
+### Disable permanently (won't auto-start on login)
+
+```bash
+launchctl unload ~/Library/LaunchAgents/com.codysecret1.codywatcher.plist
+rm ~/Library/LaunchAgents/com.codysecret1.codywatcher.plist
+```
+
+Run `./install.sh` again to re-enable it later.
+
 ## Troubleshooting
 
 **Daemon not starting — port already in use**
