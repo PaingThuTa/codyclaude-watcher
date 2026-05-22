@@ -98,7 +98,12 @@ HOOKS_JSON='{
 if [ -f "$SETTINGS_FILE" ]; then
   # Merge with existing settings
   TEMP_FILE=$(mktemp)
-  jq -s '.[0] * .[1]' "$SETTINGS_FILE" <(echo "$HOOKS_JSON") > "$TEMP_FILE"
+  if ! jq -s '.[0] * .[1]' "$SETTINGS_FILE" <(echo "$HOOKS_JSON") > "$TEMP_FILE"; then
+    echo "  ERROR: Failed to merge hooks with jq"
+    cat "$TEMP_FILE" 2>/dev/null || true
+    rm -f "$TEMP_FILE"
+    exit 1
+  fi
   mv "$TEMP_FILE" "$SETTINGS_FILE"
   echo "  Merged hooks into $SETTINGS_FILE"
 else
@@ -107,13 +112,19 @@ else
   echo "  Created $SETTINGS_FILE"
 fi
 
+# Verify hook merge worked
+if ! grep -q "permissionHooks" "$SETTINGS_FILE"; then
+  echo "  ERROR: Hook merge verification failed - permissionHooks not in settings.json"
+  exit 1
+fi
+
 # Step 7: Create and install LaunchAgent (INST-04, INST-05)
 echo ""
 echo "=== Installing LaunchAgent ==="
 mkdir -p "$HOME/Library/LaunchAgents"
 
-# Create launchd plist
-cat > "$PLIST_PATH" << 'PLIST'
+# Create launchd plist with user-specific paths
+cat > "$PLIST_PATH" << PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -122,18 +133,18 @@ cat > "$PLIST_PATH" << 'PLIST'
     <string>com.codysecret1.codywatcher</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/usr/local/bin/bun</string>
+        <string>${BUN_PATH:-/usr/local/bin/bun}</string>
         <string>run</string>
-        <string>/Users/codysecret1/.codywatcher/bin/daemon.ts</string>
+        <string>${HOME}/.codywatcher/bin/daemon.ts</string>
     </array>
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>
     <false/>
     <key>StandardOutPath</key>
-    <string>/Users/codysecret1/.codywatcher/log/daemon.log</string>
+    <string>${HOME}/.codywatcher/log/daemon.log</string>
     <key>StandardErrorPath</key>
-    <string>/Users/codysecret1/.codywatcher/log/daemon.log</string>
+    <string>${HOME}/.codywatcher/log/daemon.log</string>
 </dict>
 </plist>
 PLIST
@@ -141,8 +152,13 @@ PLIST
 echo "  Created $PLIST_PATH"
 
 # Load the LaunchAgent
+echo "  Loading LaunchAgent..."
 launchctl unload "$PLIST_PATH" 2>/dev/null || true
-launchctl load "$PLIST_PATH"
+if ! launchctl load "$PLIST_PATH" 2>&1; then
+  echo "  ERROR: Failed to load LaunchAgent"
+  echo "  Check plist with: launchctl error com.codysecret1.codywatcher"
+  exit 1
+fi
 echo "  LaunchAgent loaded"
 
 echo ""
@@ -152,6 +168,15 @@ echo "The CodyWatcher daemon is now running."
 echo ""
 echo "Verifying installation..."
 sleep 1
+
+# Verify LaunchAgent actually loaded
+if launchctl list | grep -q "com.codysecret1.codywatcher"; then
+  echo "  LaunchAgent installed and running"
+else
+  echo "  ERROR: LaunchAgent not listed in launchctl after load"
+  echo "  Run 'launchctl error com.codysecret1.codywatcher' to diagnose"
+  exit 1
+fi
 
 # Verify daemon is running
 DAEMON_STATUS=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 2 http://localhost:18765/status 2>/dev/null || echo "000")
