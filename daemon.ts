@@ -136,6 +136,76 @@ function purgeStaleSessions(): number {
   return purged;
 }
 
+function spawnListenYesno(binaryPath: string, timeout = 5): Promise<number> {
+  return new Promise((resolve) => {
+    try {
+      const proc = Bun.spawn([binaryPath, "--timeout", String(timeout)], {
+        stdout: "inherit",
+        stderr: "inherit",
+      });
+      proc.exited.then((code) => resolve(code ?? 0));
+    } catch {
+      resolve(2); // ENOENT → default to deny
+    }
+  });
+}
+
+interface VoiceLoopResult {
+  decision: "allow" | "deny";
+  message?: string;
+}
+
+async function runVoiceLoop(
+  fifoPath: string,
+  sessionId: string,
+  tool: string,
+  binaryPath: string
+): Promise<VoiceLoopResult> {
+  // Step 1 — TTS announcement
+  const sayProc = Bun.spawn(
+    ["say", "-v", "Samantha", `Session ${sessionId} requesting to run ${tool}`],
+    { stdout: "pipe", stderr: "pipe" }
+  );
+  await sayProc.exited;
+
+  // Step 2 — First voice recognition attempt (5s timeout)
+  let exitCode = await spawnListenYesno(binaryPath, 15);
+
+  // Step 3 — Re-prompt if unclear
+  if (exitCode === 2) {
+    const repromptProc = Bun.spawn(
+      ["say", "-v", "Samantha", "I didn't catch that. Please say yes or no."],
+      { stdout: "pipe", stderr: "pipe" }
+    );
+    await repromptProc.exited;
+    exitCode = await spawnListenYesno(binaryPath, 15);
+  }
+
+  // Step 4 — Map exit code to decision
+  let result: VoiceLoopResult;
+  if (exitCode === 0) {
+    result = { decision: "allow" };
+  } else if (exitCode === 1) {
+    result = { decision: "deny", message: "Denied by voice" };
+  } else {
+    result = { decision: "deny", message: "Voice input timed out" };
+  }
+
+  // Step 5 — Write decision to FIFO
+  const decisionPayload = {
+    hookSpecificOutput: {
+      hookEventName: "PermissionRequest",
+      decision: {
+        behavior: result.decision,
+        ...(result.message ? { message: result.message } : {}),
+      },
+    },
+  };
+  writeDecisionToFifo(fifoPath, decisionPayload);
+
+  return result;
+}
+
 // Run stale cleanup every 15 minutes
 setInterval(purgeStaleSessions, 15 * 60 * 1000);
 
@@ -217,6 +287,21 @@ const server = Bun.serve({
       );
     }
 
+    // POST /test-voice-loop (test helper for voice loop)
+    if (url.pathname === "/test-voice-loop" && req.method === "POST") {
+      const body = await req.json();
+      const fifoPath = body.fifoPath as string;
+      const sessionId = body.sessionId as string;
+      const tool = (body.tool as string) || "Bash";
+      const binaryPath = body.mockBinary as string;
+
+      const result = await runVoiceLoop(fifoPath, sessionId, tool, binaryPath);
+      return new Response(
+        JSON.stringify(result),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    }
+
     // POST /test-fifo-write (test helper for writeDecisionToFifo)
     if (url.pathname === "/test-fifo-write" && req.method === "POST") {
       const body = await req.json();
@@ -261,4 +346,4 @@ const server = Bun.serve({
 
 console.log(`Daemon listening on ${HOST}:${PORT}`);
 
-export { sessionMap, writeDecision, purgeStaleSessions, createFifo, checkAuthHeader, writeDecisionToFifo, server };
+export { sessionMap, writeDecision, purgeStaleSessions, createFifo, checkAuthHeader, writeDecisionToFifo, runVoiceLoop, spawnListenYesno, server };

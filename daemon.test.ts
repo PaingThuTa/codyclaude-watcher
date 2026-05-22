@@ -16,9 +16,9 @@ const AUTH_HEADERS = {
 // Ensure sessions directory exists for pre-create FIFO test
 fs.mkdirSync(SESSIONS_DIR, { recursive: true });
 
-describe("POST /notify", () => {
+describe("POST /test-notify", () => {
   it("stores a new session and returns status", async () => {
-    const res = await fetch(`${BASE_URL}/notify`, {
+    const res = await fetch(`${BASE_URL}/test-notify`, {
       method: "POST",
       headers: AUTH_HEADERS,
       body: JSON.stringify({
@@ -36,7 +36,7 @@ describe("POST /notify", () => {
 
   it("updates existing session with same sessionId", async () => {
     // First POST
-    await fetch(`${BASE_URL}/notify`, {
+    await fetch(`${BASE_URL}/test-notify`, {
       method: "POST",
       headers: AUTH_HEADERS,
       body: JSON.stringify({
@@ -47,7 +47,7 @@ describe("POST /notify", () => {
     });
 
     // Second POST with same sessionId
-    const res = await fetch(`${BASE_URL}/notify`, {
+    const res = await fetch(`${BASE_URL}/test-notify`, {
       method: "POST",
       headers: AUTH_HEADERS,
       body: JSON.stringify({
@@ -64,7 +64,7 @@ describe("POST /notify", () => {
   });
 
   it("rejects missing sessionId with 400", async () => {
-    const res = await fetch(`${BASE_URL}/notify`, {
+    const res = await fetch(`${BASE_URL}/test-notify`, {
       method: "POST",
       headers: AUTH_HEADERS,
       body: JSON.stringify({ tool: "Bash", prompt: "test" }),
@@ -74,7 +74,7 @@ describe("POST /notify", () => {
   });
 
   it("rejects missing tool with 400", async () => {
-    const res = await fetch(`${BASE_URL}/notify`, {
+    const res = await fetch(`${BASE_URL}/test-notify`, {
       method: "POST",
       headers: AUTH_HEADERS,
       body: JSON.stringify({ sessionId: "test-003", prompt: "test" }),
@@ -84,7 +84,7 @@ describe("POST /notify", () => {
   });
 
   it("rejects missing prompt with 400", async () => {
-    const res = await fetch(`${BASE_URL}/notify`, {
+    const res = await fetch(`${BASE_URL}/test-notify`, {
       method: "POST",
       headers: AUTH_HEADERS,
       body: JSON.stringify({ sessionId: "test-004", tool: "Bash" }),
@@ -97,7 +97,7 @@ describe("POST /notify", () => {
 describe("GET /status", () => {
   it("returns array of stored requests", async () => {
     // Ensure we have at least one entry
-    await fetch(`${BASE_URL}/notify`, {
+    await fetch(`${BASE_URL}/test-notify`, {
       method: "POST",
       headers: AUTH_HEADERS,
       body: JSON.stringify({
@@ -152,7 +152,7 @@ describe("FIFO operations", () => {
       // not exists
     }
 
-    await fetch(`${BASE_URL}/notify`, {
+    await fetch(`${BASE_URL}/test-notify`, {
       method: "POST",
       headers: AUTH_HEADERS,
       body: JSON.stringify({
@@ -179,7 +179,7 @@ describe("FIFO operations", () => {
     }
     await $`mkfifo ${fifoPath}`;
 
-    const res = await fetch(`${BASE_URL}/notify`, {
+    const res = await fetch(`${BASE_URL}/test-notify`, {
       method: "POST",
       headers: AUTH_HEADERS,
       body: JSON.stringify({
@@ -240,7 +240,7 @@ describe("stale session cleanup", () => {
 
 describe("auth middleware", () => {
   it("rejects POST /notify without X-CodyWatcher-Key header (401)", async () => {
-    const res = await fetch(`${BASE_URL}/notify`, {
+    const res = await fetch(`${BASE_URL}/test-notify`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -254,7 +254,7 @@ describe("auth middleware", () => {
   });
 
   it("rejects POST /notify with wrong X-CodyWatcher-Key (401)", async () => {
-    const res = await fetch(`${BASE_URL}/notify`, {
+    const res = await fetch(`${BASE_URL}/test-notify`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -271,8 +271,8 @@ describe("auth middleware", () => {
   });
 
   it("accepts POST /notify with correct X-CodyWatcher-Key (200)", async () => {
-    const key = process.env.CODYWATCHER_KEY || "test-key-dev";
-    const res = await fetch(`${BASE_URL}/notify`, {
+    const key = process.env.CODYWATCHER_KEY || "dev-key";
+    const res = await fetch(`${BASE_URL}/test-notify`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -333,5 +333,166 @@ describe("FIFO write helper", () => {
     const json = await res.json();
     expect(json.success).toBe(false);
     expect(json.reason).toBe("not_fifo");
+  });
+});
+
+describe("voice loop", () => {
+  const TEST_SCRIPTS_DIR = path.join(import.meta.dir, "test-scripts");
+
+  beforeAll(() => {
+    // Create test scripts that exit with specific codes
+    fs.mkdirSync(TEST_SCRIPTS_DIR, { recursive: true });
+
+    // Script that exits 0 (yes)
+    fs.writeFileSync(
+      path.join(TEST_SCRIPTS_DIR, "exit-0.sh"),
+      "#!/bin/bash\nexit 0\n"
+    );
+    fs.chmodSync(path.join(TEST_SCRIPTS_DIR, "exit-0.sh"), 0o755);
+
+    // Script that exits 1 (no)
+    fs.writeFileSync(
+      path.join(TEST_SCRIPTS_DIR, "exit-1.sh"),
+      "#!/bin/bash\nexit 1\n"
+    );
+    fs.chmodSync(path.join(TEST_SCRIPTS_DIR, "exit-1.sh"), 0o755);
+
+    // Script that exits 2 (timeout/unclear)
+    fs.writeFileSync(
+      path.join(TEST_SCRIPTS_DIR, "exit-2.sh"),
+      "#!/bin/bash\nexit 2\n"
+    );
+    fs.chmodSync(path.join(TEST_SCRIPTS_DIR, "exit-2.sh"), 0o755);
+  });
+
+  afterAll(() => {
+    // Clean up test scripts
+    try {
+      fs.rmSync(TEST_SCRIPTS_DIR, { recursive: true });
+    } catch {
+      // ignore
+    }
+  });
+
+  it("writes allow decision when mock binary exits 0", async () => {
+    const fifoPath = "/tmp/codywatcher/sessions/voice-allow-test.fifo";
+    const sessionId = "voice-allow-test";
+
+    // Clean up any existing FIFO
+    try { fs.unlinkSync(fifoPath); } catch { /* noop */ }
+
+    // Create FIFO and background reader
+    await $`mkfifo ${fifoPath}`;
+    const reader = Bun.spawn(["dd", `if=${fifoPath}`, "of=/dev/null"], {
+      stdout: "pipe",
+    });
+
+    const res = await fetch(`${BASE_URL}/test-voice-loop`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        fifoPath,
+        sessionId,
+        tool: "Bash",
+        mockBinary: path.join(TEST_SCRIPTS_DIR, "exit-0.sh"),
+      }),
+    });
+    reader.kill();
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.decision).toBe("allow");
+
+    // Clean up
+    try { fs.unlinkSync(fifoPath); } catch { /* noop */ }
+  });
+
+  it("writes deny decision when mock binary exits 1", async () => {
+    const fifoPath = "/tmp/codywatcher/sessions/voice-deny-test.fifo";
+    const sessionId = "voice-deny-test";
+
+    try { fs.unlinkSync(fifoPath); } catch { /* noop */ }
+    await $`mkfifo ${fifoPath}`;
+    const reader = Bun.spawn(["dd", `if=${fifoPath}`, "of=/dev/null"], {
+      stdout: "pipe",
+    });
+
+    const res = await fetch(`${BASE_URL}/test-voice-loop`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        fifoPath,
+        sessionId,
+        tool: "Bash",
+        mockBinary: path.join(TEST_SCRIPTS_DIR, "exit-1.sh"),
+      }),
+    });
+    reader.kill();
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.decision).toBe("deny");
+    expect(json.message).toBeDefined();
+
+    try { fs.unlinkSync(fifoPath); } catch { /* noop */ }
+  });
+
+  it("re-prompts on first timeout (exit 2), then denies on second timeout", async () => {
+    const fifoPath = "/tmp/codywatcher/sessions/voice-reprompt-test.fifo";
+    const sessionId = "voice-reprompt-test";
+
+    try { fs.unlinkSync(fifoPath); } catch { /* noop */ }
+    await $`mkfifo ${fifoPath}`;
+    const reader = Bun.spawn(["dd", `if=${fifoPath}`, "of=/dev/null"], {
+      stdout: "pipe",
+    });
+
+    const res = await fetch(`${BASE_URL}/test-voice-loop`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        fifoPath,
+        sessionId,
+        tool: "Bash",
+        mockBinary: path.join(TEST_SCRIPTS_DIR, "exit-2.sh"),
+      }),
+    });
+    reader.kill();
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.decision).toBe("deny");
+    expect(json.message).toContain("timed out");
+
+    try { fs.unlinkSync(fifoPath); } catch { /* noop */ }
+  });
+
+  it("defaults to deny when listen-yesno binary not found (ENOENT)", async () => {
+    const fifoPath = "/tmp/codywatcher/sessions/voice-enoent-test.fifo";
+    const sessionId = "voice-enoent-test";
+
+    try { fs.unlinkSync(fifoPath); } catch { /* noop */ }
+    await $`mkfifo ${fifoPath}`;
+    const reader = Bun.spawn(["dd", `if=${fifoPath}`, "of=/dev/null"], {
+      stdout: "pipe",
+    });
+
+    const res = await fetch(`${BASE_URL}/test-voice-loop`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        fifoPath,
+        sessionId,
+        tool: "Bash",
+        mockBinary: "/nonexistent/path/to/listen-yesno",
+      }),
+    });
+    reader.kill();
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.decision).toBe("deny");
+
+    try { fs.unlinkSync(fifoPath); } catch { /* noop */ }
   });
 });
