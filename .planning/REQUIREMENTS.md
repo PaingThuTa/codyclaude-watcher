@@ -7,24 +7,24 @@
 
 ### Daemon
 
-- [ ] **DAEMON-01**: Bun HTTP server listens on localhost:18765 with session map state
-- [ ] **DAEMON-02**: POST /notify receives permission requests and stores them in session map
-- [ ] **DAEMON-03**: Daemon creates per-session FIFO on first /notify for a session ID
-- [ ] **DAEMON-04**: Daemon runs macOS `say` TTS to announce pending requests
-- [ ] **DAEMON-05**: Daemon runs listen-yesno Swift binary for voice recognition
-- [ ] **DAEMON-06**: Daemon writes allow/deny/timeout decision JSON to session FIFO
-- [ ] **DAEMON-07**: GET /status returns active pending requests for debugging
-- [ ] **DAEMON-08**: Daemon purges stale session map entries older than 1 hour
+- [x] **DAEMON-01**: Bun HTTP server listens on localhost:18765 with session map state
+- [x] **DAEMON-02**: POST /notify receives permission requests and stores them in session map
+- [x] **DAEMON-03**: Daemon creates per-session FIFO on first /notify for a session ID
+- [ ] **DAEMON-04**: Daemon runs macOS `say` TTS to announce pending requests — deferred to Phase 2
+- [ ] **DAEMON-05**: Daemon runs listen-yesno Swift binary for voice recognition — deferred to Phase 2
+- [x] **DAEMON-06**: Daemon writes allow/deny/timeout decision JSON to session FIFO
+- [x] **DAEMON-07**: GET /status returns active pending requests for debugging
+- [x] **DAEMON-08**: Daemon purges stale session map entries older than 1 hour
 
 ### Hooks
 
-- [ ] **HOOK-01**: PermissionRequestHook POSTs request to daemon and reads FIFO decision
-- [ ] **HOOK-02**: Hook pre-creates FIFO before POSTing to daemon
-- [ ] **HOOK-03**: Hook uses jq for safe JSON encoding of special characters
-- [ ] **HOOK-04**: Hook includes 30-second timeout on FIFO read with fallback deny
-- [ ] **HOOK-05**: Hook silences curl output, echoes only FIFO decision to stdout
-- [ ] **HOOK-06**: SessionStartHook creates /tmp/codywatcher/sessions directory
-- [ ] **HOOK-07**: SessionEndHook cleans up session FIFO file
+- [x] **HOOK-01**: PermissionRequestHook POSTs request to daemon and reads FIFO decision
+- [x] **HOOK-02**: Hook pre-creates FIFO before POSTing to daemon
+- [x] **HOOK-03**: Hook uses jq for safe JSON encoding of special characters
+- [x] **HOOK-04**: Hook includes 30-second timeout on FIFO read with fallback deny
+- [x] **HOOK-05**: Hook silences curl output, echoes only FIFO decision to stdout
+- [ ] **HOOK-06**: SessionStartHook creates /tmp/codywatcher/sessions directory — requires live Claude session to verify
+- [ ] **HOOK-07**: SessionEndHook cleans up session FIFO file — requires live Claude session to verify
 
 ### Voice
 
@@ -35,10 +35,10 @@
 
 ### Installation
 
-- [ ] **INSTALL-01**: install.sh creates ~/.codywatcher/ directory structure
-- [ ] **INSTALL-02**: install.sh compiles listen-yesno.swift to binary
-- [ ] **INSTALL-03**: install.sh configures hooks in settings.json
-- [ ] **INSTALL-04**: install.sh sets up launchd plist for daemon persistence
+- [x] **INSTALL-01**: install.sh creates ~/.codywatcher/ directory structure
+- [ ] **INSTALL-02**: install.sh compiles listen-yesno.swift to binary — deferred to Phase 2 (no voice yet)
+- [ ] **INSTALL-03**: install.sh configures hooks in settings.json — user must review/add manually
+- [ ] **INSTALL-04**: install.sh sets up launchd plist for daemon persistence — deferred
 
 ### Security
 
@@ -77,32 +77,32 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| DAEMON-01 | Phase 1 | Pending |
-| DAEMON-02 | Phase 1 | Pending |
-| DAEMON-03 | Phase 1 | Pending |
-| DAEMON-04 | Phase 1 | Pending |
+| DAEMON-01 | Phase 1 | Verified |
+| DAEMON-02 | Phase 1 | Verified |
+| DAEMON-03 | Phase 1 | Verified |
+| DAEMON-04 | Phase 2 | Deferred |
 | DAEMON-05 | Phase 2 | Pending |
-| DAEMON-06 | Phase 2 | Pending |
-| DAEMON-07 | Phase 1 | Pending |
-| DAEMON-08 | Phase 1 | Pending |
-| HOOK-01 | Phase 1 | Pending |
-| HOOK-02 | Phase 1 | Pending |
-| HOOK-03 | Phase 1 | Pending |
-| HOOK-04 | Phase 1 | Pending |
-| HOOK-05 | Phase 1 | Pending |
-| HOOK-06 | Phase 1 | Pending |
-| HOOK-07 | Phase 1 | Pending |
+| DAEMON-06 | Phase 1 | Verified |
+| DAEMON-07 | Phase 1 | Verified |
+| DAEMON-08 | Phase 1 | Verified |
+| HOOK-01 | Phase 1 | Verified |
+| HOOK-02 | Phase 1 | Verified |
+| HOOK-03 | Phase 1 | Verified |
+| HOOK-04 | Phase 1 | Verified |
+| HOOK-05 | Phase 1 | Verified |
+| HOOK-06 | Phase 1 | Pending (live test) |
+| HOOK-07 | Phase 1 | Pending (live test) |
 | VOICE-01 | Phase 2 | Pending |
 | VOICE-02 | Phase 2 | Pending |
 | VOICE-03 | Phase 2 | Pending |
 | VOICE-04 | Phase 2 | Pending |
-| INSTALL-01 | Phase 3 | Pending |
+| INSTALL-01 | Phase 3 | Verified |
 | INSTALL-02 | Phase 3 | Pending |
 | INSTALL-03 | Phase 3 | Pending |
 | INSTALL-04 | Phase 3 | Pending |
-| SEC-01 | Phase 1 | Pending |
-| SEC-02 | Phase 1 | Pending |
-| SEC-03 | Phase 1 | Pending |
+| SEC-01 | Phase 1 | Verified |
+| SEC-02 | Phase 1 | Verified |
+| SEC-03 | Phase 1 | Verified |
 
 **Coverage:**
 - v1 requirements: 26 total

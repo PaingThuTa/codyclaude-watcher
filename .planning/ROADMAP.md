@@ -14,7 +14,7 @@
 5. Daemon gracefully handles missing FIFO and stale session cleanup
 6. No breakage when daemon not running — hook falls through to normal Claude behavior
 
-**Requirements:** DAEMON-01, DAEMON-02, DAEMON-03, DAEMON-04, DAEMON-07, DAEMON-08, HOOK-01, HOOK-02, HOOK-03, HOOK-04, HOOK-05, HOOK-06, HOOK-07, SEC-01, SEC-02, SEC-03
+**Requirements:** DAEMON-01, DAEMON-02, DAEMON-03, DAEMON-07, DAEMON-08, HOOK-01, HOOK-02, HOOK-03, HOOK-04, HOOK-05, HOOK-06, HOOK-07, SEC-01, SEC-02, SEC-03
 
 ### Phase 2: Voice Recognition Integration
 **Goal:** Complete the voice loop — macOS TTS announcements + Swift speech recognition + daemon writes decisions to FIFO based on voice input
