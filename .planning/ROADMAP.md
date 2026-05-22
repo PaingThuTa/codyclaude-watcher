@@ -1,42 +1,48 @@
 # CodyWatcher Roadmap
 
 **Created:** 2026-05-23
-**Total Phases:** 3
-**Requirements Mapped:** 26
+**Current Milestone:** v1.1 (in progress)
+**Total Phases:** 5
 
-### Phase 1: Core Daemon & Hooks
-**Goal:** Working daemon + hook integration that routes permission requests through localhost — no voice yet, but the full HTTP/FIFO plumbing works
-**Success Criteria**:
-1. Bun server accepts POST /notify, stores request, writes decision to FIFO
-2. Hook script POSTs to daemon, blocks on FIFO, echoes decision to stdout
-3. End-to-end flow works: notify → daemon stores → FIFO write → hook unblocks
-4. GET /status returns active pending requests
-5. Daemon gracefully handles missing FIFO and stale session cleanup
-6. No breakage when daemon not running — hook falls through to normal Claude behavior
+## Milestones
 
-**Requirements:** DAEMON-01, DAEMON-02, DAEMON-03, DAEMON-07, DAEMON-08, HOOK-01, HOOK-02, HOOK-03, HOOK-04, HOOK-05, HOOK-06, HOOK-07, SEC-01, SEC-02, SEC-03
+- ✅ **v1.0 MVP** — Phases 1-3 (shipped 2026-05-23)
+- 🚧 **v1.1 Voice Complete** — Phases 4-5 (in progress)
+- 📋 **v2.0 Sound Notifications** — Phases 6+ (planned)
 
-### Phase 2: Voice Recognition Integration
-**Goal:** Complete the voice loop — macOS TTS announcements + Swift speech recognition + daemon writes decisions to FIFO based on voice input
-**Success Criteria**:
-1. Daemon announces pending request via `say` TTS with session ID + tool name
-2. listen-yesno recognizes "yes" → exit 0, "no" → exit 1, timeout → exit 2
-3. Daemon writes correct allow/deny/timeout decision JSON to FIFO based on voice exit code
-4. listen-yesno handles Speech framework unavailable gracefully
-5. End-to-end voice approval: TTS → user says "yes" → session continues
+## Phases
 
-**Requirements:** DAEMON-05, DAEMON-06, VOICE-01, VOICE-02, VOICE-03, VOICE-04
+<details>
+<summary>✅ v1.0 MVP (Phases 1-3) — SHIPPED 2026-05-23</summary>
 
-### Phase 3: Installation & Persistence
-**Goal:** One-command setup that builds, configures, and persists the daemon — user runs install.sh and everything works
-**Success Criteria**:
-1. install.sh creates ~/.codywatcher/ directory with all files
-2. listen-yesno.swift compiles successfully to binary
-3. Hooks configured in ~/.cody-claude/settings.json
-4. launchd plist installed so daemon starts on login
-5. Fresh install → daemon running → first permission request works with voice
+- [x] Phase 1: Core Daemon & Hooks (2/2 plans) — completed 2026-05-23
+- [x] Phase 2: Voice Recognition Integration (1/2 plans) — partial
+- [x] Phase 3: Installation & Persistence (1/1 plans) — completed 2026-05-23
 
-**Requirements:** INSTALL-01, INSTALL-02, INSTALL-03, INSTALL-04
+</details>
+
+### 🚧 v1.1 Voice Complete (In Progress)
+
+- [ ] Phase 4: Voice Loop Completion (2 plans)
+- [ ] Phase 5: Security Hardening (1 plan)
+
+### 📋 v2.0 Sound Notifications (Planned)
+
+- [ ] Phase 6: Ringtone on Permission Requests
+- [ ] Phase 7: Edit Request Alerts
+- [ ] Phase 8: Claude Interrupt Notifications
+
+## Progress
+
+| Phase | Milestone | Plans Complete | Status | Completed |
+|-------|----------|-------------|--------|----------|
+| 1. Core Daemon & Hooks | v1.0 | 2/2 | Complete | 2026-05-23 |
+| 2. Voice Recognition | v1.0 | 1/2 | Partial | - |
+| 3. Installation | v1.0 | 1/1 | Complete | 2026-05-23 |
+| 4. Voice Loop | v1.1 | 0/2 | Not Started | - |
+| 5. Security | v1.1 | 0/1 | Not Started | - |
+
+---
 
 ## Phase Build Order Rationale
 

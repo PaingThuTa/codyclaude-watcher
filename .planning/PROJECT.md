@@ -12,83 +12,90 @@ Users can manage permission approvals across multiple Claude Code sessions via v
 
 ### Validated
 
-(None yet — ship to validate)
+- [x] **DAEMON-01**: Bun HTTP server on localhost:18765 — v1.0
+- [x] **DAEMON-02**: POST /notify stores requests — v1.0
+- [x] **DAEMON-03**: Per-session FIFO creation — v1.0
+- [x] **DAEMON-06**: FIFO decision writing — v1.0
+- [x] **DAEMON-07**: GET /status endpoint — v1.0
+- [x] **DAEMON-08**: Stale session cleanup — v1.0
+- [x] **HOOK-01**: PermissionRequestHook integration — v1.0
+- [x] **HOOK-02**: FIFO pre-creation — v1.0
+- [x] **HOOK-03**: jq for JSON encoding — v1.0
+- [x] **HOOK-04**: 30s timeout + fallback — v1.0
+- [x] **HOOK-05**: Silent curl output — v1.0
+- [x] **INSTALL-01**: install.sh creates ~/.codywatcher/ — v1.0
 
 ### Active
 
-- [ ] **DAEMON-01**: Bun HTTP server listens on localhost:18765 with session map state
-- [ ] **DAEMON-02**: POST /notify receives permission requests and stores them in session map
-- [ ] **DAEMON-03**: Daemon creates per-session FIFO on first /notify for a session ID
-- [ ] **DAEMON-04**: Daemon runs macOS `say` TTS to announce pending requests
-- [ ] **DAEMON-05**: Daemon runs listen-yesno Swift binary for voice recognition
-- [ ] **DAEMON-06**: Daemon writes allow/deny/timeout decision JSON to session FIFO
-- [ ] **DAEMON-07**: GET /status returns active pending requests for debugging
-- [ ] **DAEMON-08**: Daemon purges stale session map entries older than 1 hour
-- [ ] **HOOK-01**: PermissionRequestHook POSTs request to daemon and reads FIFO decision
-- [ ] **HOOK-02**: Hook pre-creates FIFO before POSTing to daemon (eliminates race condition)
-- [ ] **HOOK-03**: Hook uses jq for safe JSON encoding of special characters in prompts
-- [ ] **HOOK-04**: Hook includes 30-second timeout on FIFO read with fallback deny
-- [ ] **HOOK-05**: Hook silences curl output, echoes only FIFO decision to stdout
-- [ ] **HOOK-06**: SessionStartHook creates /tmp/codywatcher/sessions directory
-- [ ] **HOOK-07**: SessionEndHook cleans up session FIFO file
-- [ ] **VOICE-01**: listen-yesno Swift binary recognizes "yes" via macOS Speech framework → exit 0
-- [ ] **VOICE-02**: listen-yesno recognizes "no" → exit 1
-- [ ] **VOICE-03**: listen-yesno times out after 10s → exit 2
-- [ ] **VOICE-04**: listen-yesno handles Speech framework unavailable → exit 2
-- [ ] **INSTALL-01**: install.sh creates ~/.codywatcher/ directory structure
-- [ ] **INSTALL-02**: install.sh compiles listen-yesno.swift to binary
-- [ ] **INSTALL-03**: install.sh configures hooks in ~/.cody-claude/settings.json
-- [ ] **INSTALL-04**: install.sh sets up launchd plist for daemon persistence
-- [ ] **SEC-01**: Daemon binds to localhost only — not accessible from network
-- [ ] **SEC-02**: FIFOs use per-session UUID names in /tmp
-- [ ] **SEC-03**: Daemon handles missing FIFO writes gracefully (ENOENT)
+- [ ] **DAEMON-04**: macOS `say` TTS for pending requests
+- [ ] **DAEMON-05**: Daemon runs listen-yesno for voice recognition
+- [ ] **HOOK-06**: SessionStartHook creates sessions directory
+- [ ] **HOOK-07**: SessionEndHook cleans up FIFO
+- [ ] **VOICE-01**: listen-yesno "yes" → exit 0
+- [ ] **VOICE-02**: listen-yesno "no" → exit 1
+- [ ] **VOICE-03**: listen-yesno timeout → exit 2
+- [ ] **VOICE-04**: Speech unavailable handling
+- [ ] **INSTALL-02**: install.sh compiles listen-yesno to binary
+- [ ] **INSTALL-03**: install.sh merges hooks in settings.json
+- [ ] **INSTALL-04**: install.sh sets up LaunchAgent plist
+- [ ] **SEC-01**: Daemon binds to localhost only
+- [ ] **SEC-02**: FIFOs use per-session UUID
+- [ ] **SEC-03**: Daemon handles ENOENT gracefully
 
 ### Out of Scope
 
-- "Approve all similar" voice command — deferred to Phase 2, adds state tracking and complex voice grammar not needed for MVP
-- Plan approval / plan review via voice — Phase 2
-- Session summary announcement on idle — Phase 2
-- Voice commands beyond yes/no — Phase 2
-- Tray app with visual session status — Phase 2
-- Apple Intelligence integration — Phase 2 (depends on API availability)
+- "Approve all similar" voice command — adds state tracking not needed for MVP
+- Plan approval via voice — beyond core permission value
+- Session summary announcement — nice-to-have
+- Extended voice commands beyond yes/no — Phase 2+
+- Tray app — separate UI component
+- Apple Intelligence integration — external API
 
 ## Context
 
 - User runs 3-4 concurrent Claude Code sessions in Ghostty
-- Manual tab-switching for permission prompts breaks flow
-- Target platform: macOS (TTS via `say`, Speech framework for voice recognition)
-- Runtime: Bun for daemon, Swift for voice binary
-- Hook-based integration with Claude Code (PermissionRequestHook, SessionStartHook, SessionEndHook)
-- Engineering decisions already resolved: FIFO pre-creation in hook (not daemon), jq for JSON safety, 30s FIFO timeout, toolName-only TTS prompt, sequential queue for simultaneous requests
+- Phase 1 delivered daemon + hooks + FIFO plumbing
+- Phase 2 voice integration in progress (1/2 plans)
+- Tech stack: Bun daemon, Swift listen-yesno, Hook scripts
+- Deferrals: Phase 2 voice loop, live session verification, security hardening
+- v1.0 shipped with 13/26 requirements validated (50%)
+
+## Next Milestone Goals
+
+**v1.1 Voice Complete** — Complete Phase 2 voice loop + security hardening
+
+1. Finish voice loop orchestration in daemon (listen-yesno integration)
+2. Complete security requirements (SEC-01, SEC-02, SEC-03)
+3. Complete installation hooks automation (INSTALL-02, INSTALL-03, INSTALL-04)
+4. Live session verification (HOOK-06, HOICE-07)
+
+**Sound Notifications Feature** — Ringtone + alerts for all Claude interruptions
+
+1. Ringtone on permission request
+2. Ringtone on edit requests
+3. Ringtone on Claude stop/interrupt events
 
 ## Constraints
 
 - **Platform**: macOS only — depends on `say` TTS and Speech framework
-- **Runtime**: Bun for daemon — already available on user's system
+- **Runtime**: Bun for daemon
 - **Voice**: On-device speech recognition only — no cloud APIs
 - **Security**: localhost-only HTTP — no network exposure
 
 ## Key Decisions
 
-| Decision | Rationale | Outcome |
-|----------|-----------|---------|
-| FIFO pre-created in hook.sh, not daemon | Eliminates race where hook's `cat` starts before daemon's `mkfifo` | ✓ Good |
-| jq for JSON encoding in hook | String interpolation breaks on special chars in prompts | ✓ Good |
-| 30-second timeout on FIFO read | Without it, daemon crash = permanently stuck session | ✓ Good |
-| toolName-only TTS (not full prompt) | Full prompt is noise for TTS; user sees full prompt in tab | ✓ Good |
-| Sequential queue for simultaneous requests | Parallel voice would be chaotic — user couldn't distinguish requests | ✓ Good |
-| "Approve all similar" deferred | Not needed for MVP — adds complexity | — Pending |
+| Decision | Rationale | Status |
+|----------|-----------|--------|
+| FIFO pre-created in hook.sh | Eliminates race condition | ✓ Good |
+| jq for JSON encoding | Handles special chars in prompts | ✓ Good |
+| 30-second FIFO timeout | Daemon crash = stuck session | ✓ Good |
+| toolName-only TTS prompt | Full prompt is noise for TTS | ✓ Good |
+| Sequential queue for requests | Parallel voice would be chaotic | ✓ Good |
+| localhost-only daemon | Security boundary | ✓ Good |
 
 ## Evolution
 
 This document evolves at phase transitions and milestone boundaries.
-
-**After each phase transition** (via `/gsd:transition`):
-1. Requirements invalidated? → Move to Out of Scope with reason
-2. Requirements validated? → Move to Validated with phase reference
-3. New requirements emerged? → Add to Active
-4. Decisions to log? → Add to Key Decisions
-5. "What This Is" still accurate? → Update if drifted
 
 **After each milestone** (via `/gsd:complete-milestone`):
 1. Full review of all sections
@@ -97,4 +104,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-23 after initialization from CodyWatcher spec*
+*Last updated: 2026-05-23 after v1.0 milestone*
