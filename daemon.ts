@@ -7,6 +7,12 @@ const HOST = "127.0.0.1";
 const SESSIONS_DIR = "/tmp/codywatcher/sessions";
 const STALE_THRESHOLD_MS = 3600000; // 1 hour
 
+// Shared secret for auth — if not set, auth is disabled with a warning
+const CODYWATCHER_KEY = process.env.CODYWATCHER_KEY;
+if (!CODYWATCHER_KEY) {
+  console.warn("CODYWATCHER_KEY not set — auth disabled (development mode)");
+}
+
 interface PendingRequest {
   sessionId: string;
   tool: string;
@@ -32,6 +38,53 @@ async function createFifo(sessionId: string): Promise<void> {
   const fifoPath = getFifoPath(sessionId);
   if (!fs.existsSync(fifoPath)) {
     await $`mkfifo ${fifoPath}`;
+  }
+}
+
+/**
+ * Validate the X-CodyWatcher-Key header against the expected key.
+ * Returns true if the key matches, false otherwise.
+ * If CODYWATCHER_KEY is not set (development mode), always returns true.
+ */
+function checkAuthHeader(req: Request, expectedKey: string): boolean {
+  if (!expectedKey) {
+    // Development mode — no key configured
+    return true;
+  }
+  const providedKey = req.headers.get("X-CodyWatcher-Key");
+  return providedKey === expectedKey;
+}
+
+/**
+ * Safely write a decision JSON to a named pipe (FIFO).
+ * Checks that the path exists and is a FIFO before writing.
+ * Returns true on success, false on failure.
+ */
+function writeDecisionToFifo(
+  fifoPath: string,
+  decision: Record<string, unknown>
+): { success: boolean; reason?: string } {
+  if (!fs.existsSync(fifoPath)) {
+    console.warn(`FIFO not found: ${fifoPath} — session may have disconnected`);
+    return { success: false, reason: "not_found" };
+  }
+
+  const stat = fs.statSync(fifoPath);
+  if (!stat.isFIFO()) {
+    console.warn(
+      `Path is not a FIFO: ${fifoPath} — may be a regular file`
+    );
+    return { success: false, reason: "not_fifo" };
+  }
+
+  try {
+    const fd = fs.openSync(fifoPath, "w");
+    fs.writeSync(fd, JSON.stringify(decision) + "\n");
+    fs.closeSync(fd);
+    return { success: true };
+  } catch (err: any) {
+    console.warn(`FIFO write failed: ${err?.code} ${err?.message}`);
+    return { success: false, reason: err?.code ?? "write_error" };
   }
 }
 
@@ -95,6 +148,11 @@ const server = Bun.serve({
 
     // POST /notify
     if (url.pathname === "/notify" && req.method === "POST") {
+      // Auth check
+      if (!checkAuthHeader(req, CODYWATCHER_KEY)) {
+        return new Response("Unauthorized", { status: 401 });
+      }
+
       let body: Record<string, unknown>;
       try {
         body = await req.json();
@@ -159,6 +217,18 @@ const server = Bun.serve({
       );
     }
 
+    // POST /test-fifo-write (test helper for writeDecisionToFifo)
+    if (url.pathname === "/test-fifo-write" && req.method === "POST") {
+      const body = await req.json();
+      const fifoPath = body.fifoPath as string;
+      const decision = body.decision as Record<string, unknown>;
+      const result = writeDecisionToFifo(fifoPath, decision);
+      return new Response(
+        JSON.stringify(result),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    }
+
     // POST /test-stale-cleanup (test helper)
     if (
       url.pathname === "/test-stale-cleanup" &&
@@ -191,4 +261,4 @@ const server = Bun.serve({
 
 console.log(`Daemon listening on ${HOST}:${PORT}`);
 
-export { sessionMap, writeDecision, purgeStaleSessions, createFifo, server };
+export { sessionMap, writeDecision, purgeStaleSessions, createFifo, checkAuthHeader, writeDecisionToFifo, server };

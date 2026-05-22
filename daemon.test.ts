@@ -8,6 +8,10 @@ import "./daemon";
 
 const BASE_URL = "http://127.0.0.1:18765";
 const SESSIONS_DIR = "/tmp/codywatcher/sessions";
+const AUTH_HEADERS = {
+  "Content-Type": "application/json",
+  "X-CodyWatcher-Key": process.env.CODYWATCHER_KEY || "test-key-dev",
+} as const;
 
 // Ensure sessions directory exists for pre-create FIFO test
 fs.mkdirSync(SESSIONS_DIR, { recursive: true });
@@ -16,7 +20,7 @@ describe("POST /notify", () => {
   it("stores a new session and returns status", async () => {
     const res = await fetch(`${BASE_URL}/notify`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: AUTH_HEADERS,
       body: JSON.stringify({
         sessionId: "test-001",
         tool: "Bash",
@@ -34,7 +38,7 @@ describe("POST /notify", () => {
     // First POST
     await fetch(`${BASE_URL}/notify`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: AUTH_HEADERS,
       body: JSON.stringify({
         sessionId: "test-002",
         tool: "Read",
@@ -45,7 +49,7 @@ describe("POST /notify", () => {
     // Second POST with same sessionId
     const res = await fetch(`${BASE_URL}/notify`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: AUTH_HEADERS,
       body: JSON.stringify({
         sessionId: "test-002",
         tool: "Write",
@@ -62,7 +66,7 @@ describe("POST /notify", () => {
   it("rejects missing sessionId with 400", async () => {
     const res = await fetch(`${BASE_URL}/notify`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: AUTH_HEADERS,
       body: JSON.stringify({ tool: "Bash", prompt: "test" }),
     });
 
@@ -72,7 +76,7 @@ describe("POST /notify", () => {
   it("rejects missing tool with 400", async () => {
     const res = await fetch(`${BASE_URL}/notify`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: AUTH_HEADERS,
       body: JSON.stringify({ sessionId: "test-003", prompt: "test" }),
     });
 
@@ -82,7 +86,7 @@ describe("POST /notify", () => {
   it("rejects missing prompt with 400", async () => {
     const res = await fetch(`${BASE_URL}/notify`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: AUTH_HEADERS,
       body: JSON.stringify({ sessionId: "test-004", tool: "Bash" }),
     });
 
@@ -95,7 +99,7 @@ describe("GET /status", () => {
     // Ensure we have at least one entry
     await fetch(`${BASE_URL}/notify`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: AUTH_HEADERS,
       body: JSON.stringify({
         sessionId: "status-test-001",
         tool: "Bash",
@@ -150,7 +154,7 @@ describe("FIFO operations", () => {
 
     await fetch(`${BASE_URL}/notify`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: AUTH_HEADERS,
       body: JSON.stringify({
         sessionId: "fifo-test-001",
         tool: "Bash",
@@ -177,7 +181,7 @@ describe("FIFO operations", () => {
 
     const res = await fetch(`${BASE_URL}/notify`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: AUTH_HEADERS,
       body: JSON.stringify({
         sessionId: "fifo-test-002",
         tool: "Read",
