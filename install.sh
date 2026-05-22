@@ -78,22 +78,25 @@ echo "[6/6] Configuring hooks..."
 SETTINGS_FILE="$HOME/.cody-claude/settings.json"
 
 # Create hook configuration JSON
-HOOKS_JSON='{
+HOOKS_JSON=$(cat <<HOOKS_EOF
+{
   "permissionHooks": {
     "PermissionRequestHook": {
       "matcher": ".*",
-      "command": "'"$CODWATCHER_DIR"'/bin/hook.sh '"'"'${sessionId}'"'"' '"'"'${toolName}'"'"' '"'"'${promptText}'"'"'"
+      "command": "$CODWATCHER_DIR/bin/hook.sh '\${sessionId}' '\${toolName}' '\${promptText}'"
     }
   },
   "hooks": {
     "SessionStartHook": [
-      { "command": "mkdir -p '"$SESSIONS_DIR"'" }
+      { "command": "mkdir -p $SESSIONS_DIR" }
     ],
     "SessionEndHook": [
-      { "command": "rm -f '"$SESSIONS_DIR"'/"'"'${sessionId}'"'"'.fifo" }
+      { "command": "rm -f $SESSIONS_DIR/'\${sessionId}'.fifo" }
     ]
   }
-}'
+}
+HOOKS_EOF
+)
 
 if [ -f "$SETTINGS_FILE" ]; then
   # Merge with existing settings
