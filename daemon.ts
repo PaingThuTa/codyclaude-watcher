@@ -1,0 +1,194 @@
+import { $ } from "bun";
+import fs from "fs";
+import path from "path";
+
+const PORT = 18765;
+const HOST = "127.0.0.1";
+const SESSIONS_DIR = "/tmp/codywatcher/sessions";
+const STALE_THRESHOLD_MS = 3600000; // 1 hour
+
+interface PendingRequest {
+  sessionId: string;
+  tool: string;
+  prompt: string;
+  status: "pending" | "approved" | "denied";
+  timestamp: number;
+}
+
+const sessionMap = new Map<string, PendingRequest>();
+
+function ensureSessionsDir(): void {
+  if (!fs.existsSync(SESSIONS_DIR)) {
+    fs.mkdirSync(SESSIONS_DIR, { recursive: true });
+  }
+}
+
+function getFifoPath(sessionId: string): string {
+  return path.join(SESSIONS_DIR, `${sessionId}.fifo`);
+}
+
+async function createFifo(sessionId: string): Promise<void> {
+  ensureSessionsDir();
+  const fifoPath = getFifoPath(sessionId);
+  if (!fs.existsSync(fifoPath)) {
+    await $`mkfifo ${fifoPath}`;
+  }
+}
+
+function writeDecision(
+  sessionId: string,
+  decision: "allow" | "denied",
+  message?: string
+): void {
+  const fifoPath = getFifoPath(sessionId);
+
+  const payload: Record<string, unknown> = {
+    hookSpecificOutput: {
+      hookEventName: "PermissionRequest",
+      decision: {
+        behavior: decision === "allow" ? "allow" : "deny",
+        ...(decision === "denied" && message ? { message } : {}),
+      },
+    },
+  };
+
+  try {
+    const fd = fs.openSync(fifoPath, "w");
+    fs.writeSync(fd, JSON.stringify(payload));
+    fs.closeSync(fd);
+  } catch (err: any) {
+    if (err?.code === "ENOENT") {
+      console.warn(`FIFO not found for session ${sessionId}`);
+    } else {
+      console.warn(`Error writing decision for session ${sessionId}:`, err);
+    }
+  }
+}
+
+function purgeStaleSessions(): number {
+  const now = Date.now();
+  let purged = 0;
+
+  for (const [sessionId, entry] of sessionMap) {
+    if (now - entry.timestamp > STALE_THRESHOLD_MS) {
+      sessionMap.delete(sessionId);
+      purged++;
+    }
+  }
+
+  if (purged > 0) {
+    console.log(`Purged ${purged} stale session(s)`);
+  }
+
+  return purged;
+}
+
+// Run stale cleanup every 15 minutes
+setInterval(purgeStaleSessions, 15 * 60 * 1000);
+
+const server = Bun.serve({
+  port: PORT,
+  hostname: HOST,
+
+  async fetch(req: Request): Promise<Response> {
+    const url = new URL(req.url);
+
+    // POST /notify
+    if (url.pathname === "/notify" && req.method === "POST") {
+      let body: Record<string, unknown>;
+      try {
+        body = await req.json();
+      } catch {
+        return new Response(
+          JSON.stringify({ error: "Invalid JSON body" }),
+          { status: 400, headers: { "Content-Type": "application/json" } }
+        );
+      }
+
+      const sessionId = body.sessionId as string;
+      const tool = body.tool as string;
+      const prompt = body.prompt as string;
+
+      if (!sessionId || !tool || !prompt) {
+        return new Response(
+          JSON.stringify({
+            error: "Missing required fields: sessionId, tool, prompt",
+          }),
+          { status: 400, headers: { "Content-Type": "application/json" } }
+        );
+      }
+
+      // Create FIFO for new session
+      await createFifo(sessionId);
+
+      const entry: PendingRequest = {
+        sessionId,
+        tool,
+        prompt,
+        status: "pending",
+        timestamp: Date.now(),
+      };
+
+      sessionMap.set(sessionId, entry);
+
+      return new Response(
+        JSON.stringify({ status: "stored", sessionId }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    }
+
+    // GET /status
+    if (url.pathname === "/status" && req.method === "GET") {
+      return new Response(
+        JSON.stringify(Array.from(sessionMap.values())),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    }
+
+    // POST /test-write-decision (test helper)
+    if (
+      url.pathname === "/test-write-decision" &&
+      req.method === "POST"
+    ) {
+      const body = await req.json();
+      const sessionId = body.sessionId as string;
+      writeDecision(sessionId, "allow");
+      return new Response(
+        JSON.stringify({ result: "warning_logged" }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    }
+
+    // POST /test-stale-cleanup (test helper)
+    if (
+      url.pathname === "/test-stale-cleanup" &&
+      req.method === "POST"
+    ) {
+      const body = await req.json();
+      const sessionId = body.sessionId as string;
+      const ageMs = (body.age_ms as number) ?? 7200000;
+
+      // Insert a backdated entry
+      sessionMap.set(sessionId, {
+        sessionId,
+        tool: "Test",
+        prompt: "stale",
+        status: "pending",
+        timestamp: Date.now() - ageMs,
+      });
+
+      const purged = purgeStaleSessions();
+      return new Response(
+        JSON.stringify({ purged }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    }
+
+    // 404 for everything else
+    return new Response("Not Found", { status: 404 });
+  },
+});
+
+console.log(`Daemon listening on ${HOST}:${PORT}`);
+
+export { sessionMap, writeDecision, purgeStaleSessions, createFifo, server };
