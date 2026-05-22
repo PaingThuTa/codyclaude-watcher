@@ -85,14 +85,6 @@ HOOKS_JSON=$(cat <<HOOKS_EOF
       "matcher": ".*",
       "command": "$CODWATCHER_DIR/bin/hook.sh '\${sessionId}' '\${toolName}' '\${promptText}'"
     }
-  },
-  "hooks": {
-    "SessionStartHook": [
-      { "command": "mkdir -p $SESSIONS_DIR" }
-    ],
-    "SessionEndHook": [
-      { "command": "rm -f $SESSIONS_DIR/'\${sessionId}'.fifo" }
-    ]
   }
 }
 HOOKS_EOF
