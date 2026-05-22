@@ -36,6 +36,7 @@ HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
   --max-time 5 \
   -X POST "$DAEMON_URL" \
   -H "Content-Type: application/json" \
+  -H "X-CodyWatcher-Key: ${CODYWATCHER_KEY}" \
   -d "$BODY" 2>/dev/null) || {
   # Daemon not reachable — exit silently, Claude falls through to normal prompt (D-05)
   exit 0
