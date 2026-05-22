@@ -137,13 +137,12 @@ function purgeStaleSessions(): number {
   return purged;
 }
 
-function spawnListenYesno(binaryPath: string, timeout = 5, mode = "decision"): Promise<number> {
+function spawnListenYesno(binaryPath: string, timeout = 5, mode = "decision", ringtonePath?: string): Promise<number> {
   return new Promise((resolve) => {
     try {
-      const proc = Bun.spawn([binaryPath, "--timeout", String(timeout), "--mode", mode], {
-        stdout: "inherit",
-        stderr: "inherit",
-      });
+      const cmd = [binaryPath, "--timeout", String(timeout), "--mode", mode];
+      if (ringtonePath) cmd.push("--ringtone", ringtonePath);
+      const proc = Bun.spawn(cmd, { stdout: "inherit", stderr: "inherit" });
       proc.exited.then((code) => resolve(code ?? 0));
     } catch {
       resolve(2); // ENOENT → default to deny
@@ -162,17 +161,8 @@ async function runVoiceLoop(
   tool: string,
   binaryPath: string
 ): Promise<VoiceLoopResult> {
-  // Step 1 — play ringtone on loop while waiting for wake word
-  const ringtone = Bun.spawn(["afplay", "-l", "0", RINGTONE_PATH], {
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-
-  // Step 2 — listen for wake word ("hello", "yo", "hey", etc.)
-  const wakeCode = await spawnListenYesno(binaryPath, 15, "wake");
-
-  // Step 3 — stop ringtone regardless of outcome
-  ringtone.kill();
+  // Step 1 — listen for wake word; ringtone plays inside the binary (same audio session, no conflict)
+  const wakeCode = await spawnListenYesno(binaryPath, 15, "wake", RINGTONE_PATH);
 
   if (wakeCode !== 0) {
     // No wake word heard — deny silently

@@ -19,6 +19,13 @@ if let idx = args.firstIndex(of: "--mode"),
   mode = args[next]
 }
 
+// Parse --ringtone flag: path to MP3 to loop during wake mode
+var ringtonePath: String? = nil
+if let idx = args.firstIndex(of: "--ringtone"),
+   let next = args.index(idx, offsetBy: 1, limitedBy: args.count - 1) {
+  ringtonePath = args[next]
+}
+
 let wakeWords: Set<String> = ["hello", "yo", "hey", "hi", "yeah", "cody", "ok", "okay"]
 
 // Semaphore to block until authorization callback fires
@@ -37,6 +44,15 @@ guard let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US")),
       recognizer.isAvailable else {
   print("SFSpeechRecognizer not available")
   exit(2)
+}
+
+// Start ringtone player if path provided (runs in same process, no audio session conflict)
+var player: AVAudioPlayer? = nil
+if let path = ringtonePath {
+  let url = URL(fileURLWithPath: path)
+  player = try? AVAudioPlayer(contentsOf: url)
+  player?.numberOfLoops = -1 // loop indefinitely
+  player?.play()
 }
 
 let audioEngine = AVAudioEngine()
@@ -59,11 +75,11 @@ let task = recognizer.recognitionTask(with: request) { result, error in
   if mode == "wake" {
     if !wakeWords.intersection(words).isEmpty {
       resolved = true
+      player?.stop()
       audioEngine.stop()
       exit(0)
     }
   } else {
-    // decision mode
     if transcription.contains("yes") {
       resolved = true
       audioEngine.stop()
@@ -80,12 +96,15 @@ do {
   try audioEngine.start()
 } catch {
   print("AVAudioEngine start failed: \(error)")
+  player?.stop()
   task.cancel()
   exit(2)
 }
 
 RunLoop.main.run(until: Date(timeIntervalSinceNow: timeout))
 
+// Timeout — stop everything
+player?.stop()
 audioEngine.stop()
 task.cancel()
 exit(2)
