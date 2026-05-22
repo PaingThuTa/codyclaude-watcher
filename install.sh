@@ -1,22 +1,29 @@
 #!/bin/bash
-# CodyWatcher - Setup Script
-# Creates directory structure, validates dependencies, prints hook configuration
+# CodyWatcher Installation Script
+# One-command setup: creates directory structure, builds binaries, configures hooks, installs LaunchAgent
+
+set -e
 
 CODWATCHER_DIR="$HOME/.codywatcher"
 SESSIONS_DIR="/tmp/codywatcher/sessions"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PLIST_PATH="$HOME/Library/LaunchAgents/com.codysecret1.codywatcher.plist"
 
-echo "=== CodyWatcher Setup ==="
+echo "=== CodyWatcher Installation ==="
 echo ""
 
-# Step 1: Create directory structure
-echo "[1/5] Creating directories..."
-mkdir -p "$CODWATCHER_DIR"
+# Step 1: Create directory structure (INST-01)
+echo "[1/6] Creating directories..."
+mkdir -p "$CODWATCHER_DIR/bin"
+mkdir -p "$CODWATCHER_DIR/config"
+mkdir -p "$CODWATCHER_DIR/state"
+mkdir -p "$CODWATCHER_DIR/log"
 mkdir -p "$SESSIONS_DIR"
-echo "  Created ~/.codywatcher/"
-echo "  Created /tmp/codywatcher/sessions/"
+echo "  Created ~/.codywatcher/ with bin/, config/, state/, log/"
+echo "  Created $SESSIONS_DIR/"
 
 # Step 2: Check dependencies
-echo "[2/5] Checking dependencies..."
+echo "[2/6] Checking dependencies..."
 
 if ! command -v bun &> /dev/null; then
   echo "  ERROR: bun is required but not installed"
@@ -32,48 +39,139 @@ if ! command -v jq &> /dev/null; then
 fi
 echo "  jq: $(jq --version)"
 
+if ! command -v swiftc &> /dev/null; then
+  echo "  ERROR: swiftc is required but not installed"
+  echo "  Install Xcode from Mac App Store or: xcode-select --install"
+  exit 1
+fi
+echo "  swiftc: available"
+
 echo ""
 
-# Step 3: Make scripts executable
-echo "[3/5] Setting permissions..."
-chmod +x "$CODWATCHER_DIR/hook.sh" 2>/dev/null && echo "  hook.sh: executable" || echo "  hook.sh: not found"
-chmod +x "$CODWATCHER_DIR/install.sh" && echo "  install.sh: executable"
+# Step 3: Copy source files to ~/.codywatcher/bin/
+echo "[3/6] Copying source files..."
+cp "$SCRIPT_DIR/daemon.ts" "$CODWATCHER_DIR/bin/"
+cp "$SCRIPT_DIR/hook.sh" "$CODWATCHER_DIR/bin/"
+echo "  Copied daemon.ts and hook.sh to ~/.codywatcher/bin/"
 
-echo ""
+# Step 4: Copy and compile listen-yesno.swift (INST-02)
+echo "[4/6] Compiling listen-yesno.swift..."
+SWIFT_SRC="$SCRIPT_DIR/.codywatcher/listen-yesno.swift"
+if [ -f "$SWIFT_SRC" ]; then
+  cp "$SWIFT_SRC" "$CODWATCHER_DIR/bin/listen-yesno.swift"
+  cd "$CODWATCHER_DIR/bin"
+  swiftc listen-yesno.swift -o listen-yesno -framework Speech -framework AVFoundation
+  chmod +x listen-yesno
+  echo "  Compiled listen-yesno.swift to binary"
+else
+  echo "  WARNING: listen-yesno.swift not found at $SWIFT_SRC"
+fi
 
-# Step 4: Print hook configuration
-echo "[4/5] Hook Configuration"
-echo ""
-echo "Add the following to ~/.cody-claude/settings.json:"
-echo ""
-cat << 'CONFIG'
-{
+# Step 5: Make scripts executable
+echo "[5/6] Setting permissions..."
+chmod +x "$CODWATCHER_DIR/bin/hook.sh"
+chmod +x "$CODWATCHER_DIR/bin/daemon.ts"
+echo "  hook.sh and daemon.ts are executable"
+
+# Step 6: Merge hooks into settings.json (INST-03)
+echo "[6/6] Configuring hooks..."
+SETTINGS_FILE="$HOME/.cody-claude/settings.json"
+
+# Create hook configuration JSON
+HOOKS_JSON='{
   "permissionHooks": {
     "PermissionRequestHook": {
       "matcher": ".*",
-      "command": "~/.codywatcher/hook.sh '${sessionId}' '${toolName}' '${promptText}'"
+      "command": "'"$CODWATCHER_DIR"'/bin/hook.sh '"'"'${sessionId}'"'"' '"'"'${toolName}'"'"' '"'"'${promptText}'"'"'"
     }
   },
   "hooks": {
     "SessionStartHook": [
-      { "command": "mkdir -p /tmp/codywatcher/sessions" }
+      { "command": "mkdir -p '"$SESSIONS_DIR"'" }
     ],
     "SessionEndHook": [
-      { "command": "rm -f /tmp/codywatcher/sessions/${sessionId}.fifo" }
+      { "command": "rm -f '"$SESSIONS_DIR"'/"'"'${sessionId}'"'"'.fifo" }
     ]
   }
-}
-CONFIG
+}'
+
+if [ -f "$SETTINGS_FILE" ]; then
+  # Merge with existing settings
+  TEMP_FILE=$(mktemp)
+  jq -s '.[0] * .[1]' "$SETTINGS_FILE" <(echo "$HOOKS_JSON") > "$TEMP_FILE"
+  mv "$TEMP_FILE" "$SETTINGS_FILE"
+  echo "  Merged hooks into $SETTINGS_FILE"
+else
+  # Create new settings file
+  echo "$HOOKS_JSON" > "$SETTINGS_FILE"
+  echo "  Created $SETTINGS_FILE"
+fi
+
+# Step 7: Create and install LaunchAgent (INST-04, INST-05)
+echo ""
+echo "=== Installing LaunchAgent ==="
+mkdir -p "$HOME/Library/LaunchAgents"
+
+# Create launchd plist
+cat > "$PLIST_PATH" << 'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.codysecret1.codywatcher</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/bin/bun</string>
+        <string>run</string>
+        <string>/Users/codysecret1/.codywatcher/bin/daemon.ts</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <false/>
+    <key>StandardOutPath</key>
+    <string>/Users/codysecret1/.codywatcher/log/daemon.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/codysecret1/.codywatcher/log/daemon.log</string>
+</dict>
+</plist>
+PLIST
+
+echo "  Created $PLIST_PATH"
+
+# Load the LaunchAgent
+launchctl unload "$PLIST_PATH" 2>/dev/null || true
+launchctl load "$PLIST_PATH"
+echo "  LaunchAgent loaded"
 
 echo ""
+echo "=== Installation Complete ==="
+echo ""
+echo "The CodyWatcher daemon is now running."
+echo ""
+echo "Verifying installation..."
+sleep 1
 
-# Step 5: Start instructions
-echo "[5/5] Starting the Daemon"
+# Verify daemon is running
+DAEMON_STATUS=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 2 http://localhost:18765/status 2>/dev/null || echo "000")
+if [ "$DAEMON_STATUS" = "200" ]; then
+  echo "  Daemon responding on localhost:18765"
+else
+  echo "  WARNING: Daemon not responding (status: $DAEMON_STATUS)"
+  echo "  The daemon will start automatically on next login."
+  echo "  To start manually: bun run ~/.codywatcher/bin/daemon.ts"
+fi
+
+# Verify LaunchAgent
+if launchctl list | grep -q "com.codysecret1.codywatcher"; then
+  echo "  LaunchAgent installed and running"
+else
+  echo "  WARNING: LaunchAgent not listed in launchctl"
+fi
+
 echo ""
-echo "To start the daemon manually:"
-echo "  bun run ~/.codywatcher/daemon.ts &"
-echo ""
-echo "For persistence across restarts, create a launchd plist at:"
-echo "  ~/Library/LaunchAgents/com.codywatcher.daemon.plist"
-echo ""
-echo "=== Setup Complete ==="
+echo "Next steps:"
+echo "  1. Start a new Claude Code session"
+echo "  2. When a permission request appears, say 'yes' or 'no'"
+echo "  3. The daemon will use macOS Speech Recognition to process your voice"
