@@ -233,3 +233,101 @@ describe("stale session cleanup", () => {
     expect(stillThere).toBeUndefined();
   });
 });
+
+describe("auth middleware", () => {
+  it("rejects POST /notify without X-CodyWatcher-Key header (401)", async () => {
+    const res = await fetch(`${BASE_URL}/notify`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sessionId: "auth-test-001",
+        tool: "Bash",
+        prompt: "test",
+      }),
+    });
+
+    expect(res.status).toBe(401);
+  });
+
+  it("rejects POST /notify with wrong X-CodyWatcher-Key (401)", async () => {
+    const res = await fetch(`${BASE_URL}/notify`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-CodyWatcher-Key": "wrong-key",
+      },
+      body: JSON.stringify({
+        sessionId: "auth-test-002",
+        tool: "Bash",
+        prompt: "test",
+      }),
+    });
+
+    expect(res.status).toBe(401);
+  });
+
+  it("accepts POST /notify with correct X-CodyWatcher-Key (200)", async () => {
+    const key = process.env.CODYWATCHER_KEY || "test-key-dev";
+    const res = await fetch(`${BASE_URL}/notify`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-CodyWatcher-Key": key,
+      },
+      body: JSON.stringify({
+        sessionId: "auth-test-003",
+        tool: "Bash",
+        prompt: "test",
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.status).toBe("stored");
+  });
+});
+
+describe("FIFO write helper", () => {
+  it("returns false for non-existent path", async () => {
+    const res = await fetch(`${BASE_URL}/test-fifo-write`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        fifoPath: "/tmp/codywatcher/sessions/nonexistent.fifo",
+        decision: { behavior: "allow" },
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.success).toBe(false);
+    expect(json.reason).toBe("not_found");
+  });
+
+  it("returns false for regular file (not FIFO)", async () => {
+    const testPath = "/tmp/codywatcher/sessions/not-a-fifo-test.tmp";
+    // Create a regular file (not a FIFO)
+    fs.writeFileSync(testPath, "test");
+
+    const res = await fetch(`${BASE_URL}/test-fifo-write`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        fifoPath: testPath,
+        decision: { behavior: "allow" },
+      }),
+    });
+
+    // Clean up
+    try {
+      fs.unlinkSync(testPath);
+    } catch {
+      // ignore
+    }
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.success).toBe(false);
+    expect(json.reason).toBe("not_fifo");
+  });
+});
