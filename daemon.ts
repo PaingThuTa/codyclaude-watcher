@@ -6,6 +6,7 @@ const PORT = 18765;
 const HOST = "127.0.0.1";
 const SESSIONS_DIR = "/tmp/codywatcher/sessions";
 const STALE_THRESHOLD_MS = 3600000; // 1 hour
+const RINGTONE_PATH = path.join(path.dirname(new URL(import.meta.url).pathname), "cat-iphone-ringtone.mp3");
 
 // Shared secret for auth — if not set, auth is disabled with a warning
 const CODYWATCHER_KEY = process.env.CODYWATCHER_KEY;
@@ -136,10 +137,10 @@ function purgeStaleSessions(): number {
   return purged;
 }
 
-function spawnListenYesno(binaryPath: string, timeout = 5): Promise<number> {
+function spawnListenYesno(binaryPath: string, timeout = 5, mode = "decision"): Promise<number> {
   return new Promise((resolve) => {
     try {
-      const proc = Bun.spawn([binaryPath, "--timeout", String(timeout)], {
+      const proc = Bun.spawn([binaryPath, "--timeout", String(timeout), "--mode", mode], {
         stdout: "inherit",
         stderr: "inherit",
       });
@@ -161,27 +162,50 @@ async function runVoiceLoop(
   tool: string,
   binaryPath: string
 ): Promise<VoiceLoopResult> {
-  // Step 1 — TTS announcement
+  // Step 1 — play ringtone on loop while waiting for wake word
+  const ringtone = Bun.spawn(["afplay", "-l", "0", RINGTONE_PATH], {
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+
+  // Step 2 — listen for wake word ("hello", "yo", "hey", etc.)
+  const wakeCode = await spawnListenYesno(binaryPath, 15, "wake");
+
+  // Step 3 — stop ringtone regardless of outcome
+  ringtone.kill();
+
+  if (wakeCode !== 0) {
+    // No wake word heard — deny silently
+    const denyPayload = {
+      hookSpecificOutput: {
+        hookEventName: "PermissionRequest",
+        decision: { behavior: "deny", message: "No response" },
+      },
+    };
+    writeDecisionToFifo(fifoPath, denyPayload);
+    return { decision: "deny", message: "No wake word detected" };
+  }
+
+  // Step 4 — Allison speaks the permission request
   const sayProc = Bun.spawn(
-    ["say", "-v", "Samantha", `Session ${sessionId} requesting to run ${tool}`],
+    ["say", "-v", "Allison (Enhanced)", `Hey Cody, Claude wants to run ${tool}. Say yes or no.`],
     { stdout: "pipe", stderr: "pipe" }
   );
   await sayProc.exited;
 
-  // Step 2 — First voice recognition attempt (5s timeout)
-  let exitCode = await spawnListenYesno(binaryPath, 15);
+  // Step 5 — listen for yes/no decision
+  let exitCode = await spawnListenYesno(binaryPath, 15, "decision");
 
-  // Step 3 — Re-prompt if unclear
   if (exitCode === 2) {
     const repromptProc = Bun.spawn(
-      ["say", "-v", "Samantha", "I didn't catch that. Please say yes or no."],
+      ["say", "-v", "Allison (Enhanced)", "I didn't catch that. Say yes or no."],
       { stdout: "pipe", stderr: "pipe" }
     );
     await repromptProc.exited;
-    exitCode = await spawnListenYesno(binaryPath, 15);
+    exitCode = await spawnListenYesno(binaryPath, 15, "decision");
   }
 
-  // Step 4 — Map exit code to decision
+  // Step 6 — map exit code to decision
   let result: VoiceLoopResult;
   if (exitCode === 0) {
     result = { decision: "allow" };
@@ -191,7 +215,7 @@ async function runVoiceLoop(
     result = { decision: "deny", message: "Voice input timed out" };
   }
 
-  // Step 5 — Write decision to FIFO
+  // Step 7 — write decision to FIFO
   const decisionPayload = {
     hookSpecificOutput: {
       hookEventName: "PermissionRequest",
