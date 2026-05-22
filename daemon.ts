@@ -259,6 +259,18 @@ const server = Bun.serve({
 
       sessionMap.set(sessionId, entry);
 
+      // Fire voice loop in background — don't await so we return 200 immediately
+      const fifoPath = getFifoPath(sessionId);
+      const binaryPath = path.join(path.dirname(new URL(import.meta.url).pathname), "listen-yesno");
+      runVoiceLoop(fifoPath, sessionId, tool, binaryPath).then((result) => {
+        const stored = sessionMap.get(sessionId);
+        if (stored) {
+          stored.status = result.decision === "allow" ? "approved" : "denied";
+        }
+      }).catch((err) => {
+        console.warn(`Voice loop error for session ${sessionId}:`, err);
+      });
+
       return new Response(
         JSON.stringify({ status: "stored", sessionId }),
         { status: 200, headers: { "Content-Type": "application/json" } }
